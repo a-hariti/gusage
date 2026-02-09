@@ -10,7 +10,8 @@
   "files": [
     "dist/index.js",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "assets"
   ],
   "author": "Abdellah Hariti <haritiabdellah@gmail.com>",
   "license": "MIT",
