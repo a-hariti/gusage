@@ -160,7 +160,7 @@ export default async function main(): Promise<void> {
     args,
     options: {
       help: { type: 'boolean', short: 'h' },
-      'output-format': { type: 'string', short: 'o', default: 'table' },
+      json: { type: 'boolean', short: 'j' },
       'no-color': { type: 'boolean' },
       watch: { type: 'string', short: 'w' },
     },
@@ -175,19 +175,14 @@ Options:
   -h, --help                Show this help message
   -w, --watch [interval]    Update live every interval (default: 10s).
                             Supports combined units: 20s, 5m, 1m20s.
-  -o, --output-format <fmt> Output format: table (default), json
+  -j, --json                Output raw JSON instead of a table
   --no-color                Disable color output
     `);
     return;
   }
 
-  const outputFormat = values['output-format'];
-  if (outputFormat !== 'json' && outputFormat !== 'table') {
-    console.error(`Error: Unsupported output format "${outputFormat}". Use "table" or "json".`);
-    process.exit(1);
-  }
-
   const isWatching = values.watch !== undefined;
+  const isJson = values.json === true;
   let intervalMs = 10000;
   let intervalStr = '10s';
   if (values.watch) {
@@ -332,10 +327,10 @@ Options:
         });
     }
 
-    if (isWatching) process.stdout.write(colors.clear);
+    if (isWatching && !isJson) process.stdout.write(colors.clear);
 
-    if (outputFormat === 'json') {
-      console.log(JSON.stringify(quotaData.buckets || [], null, 2));
+    if (isJson) {
+      console.log(JSON.stringify(quotaData.buckets || []));
     } else {
       if (!quotaData.buckets || quotaData.buckets.length === 0) {
         console.log('No quota data available.');
@@ -368,6 +363,7 @@ Options:
       const h0 = headers[0]!.padEnd(modelWidth);
       const h1 = headers[1]!.padEnd(remainingWidth);
       const h2 = headers[2]!.padEnd(resetWidth);
+      const sep = `${colors.dim}│${colors.reset}`;
       const headerRow = `${h0}    ${h1}    ${h2}`;
       console.log(headerRow);
       console.log(`${colors.dim}${'─'.repeat(visualLength(headerRow))}${colors.reset}`);
@@ -390,7 +386,7 @@ Options:
         }
       });
 
-      if (isWatching) {
+      if (isWatching && !isJson) {
         console.log(`\n${colors.dim}Updating every ${intervalStr}, press q to quit${colors.reset}`);
       }
     }

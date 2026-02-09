@@ -47,17 +47,17 @@ gusage --watch
 gusage --watch 1m20s
 
 # Output raw JSON for scripting
-gusage -o json
+gusage --json | jq .
 
-# Disable colors
-gusage --no-color
+# Stream JSON updates every 5 seconds (one line per tick)
+gusage --json --watch 5s | jq .
 ```
 
 ## Options
 
 - `-h, --help`: Show help message.
 - `-w, --watch [interval]`: Update live every interval (default: 10s). Supports units like `20s`, `5m`, `1m20s`.
-- `-o, --output-format <fmt>`: Set output format to `table` (default) or `json`.
+- `-j, --json`: Output raw JSON instead of a table. Can be combined with `--watch` for streaming data.
 - `--no-color`: Disable color output (also respects `NO_COLOR` env var).
 
 ## Requirements
