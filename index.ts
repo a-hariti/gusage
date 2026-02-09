@@ -115,7 +115,7 @@ function renderProgressBar(fraction: number, width: number, useColor: boolean): 
     return bar;
   }
 
-  const fillCol = 39; // Gemini Cyan
+  const fillCol = fraction < 0.2 ? 196 : 15; // Red if low, Default White otherwise
   const trackCol = 237; // Dark Grey
   const fg = (n: number) => `\x1b[38;5;${n}m`;
   const bg = (n: number) => `\x1b[48;5;${n}m`;
