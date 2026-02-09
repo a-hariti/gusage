@@ -1,11 +1,23 @@
 {
-  "name": "gemini-usage",
+  "name": "gusage",
+  "version": "1.0.0",
+  "description": "A standalone CLI to export Gemini CLI quota and usage statistics",
   "module": "index.ts",
   "type": "module",
-  "private": true,
+  "bin": {
+    "gusage": "./dist/index.js"
+  },
+  "files": [
+    "dist/index.js",
+    "README.md"
+  ],
+  "author": "Abdellah Hariti <haritiabdellah@gmail.com>",
+  "license": "MIT",
+  "private": false,
   "scripts": {
     "format": "prettier --write .",
-    "prepare": "husky"
+    "prepare": "husky",
+    "build": "bun build ./index.ts --outfile dist/index.js && chmod +x dist/index.js"
   },
   "lint-staged": {
     "*": "prettier --write --ignore-unknown",

@@ -119,7 +119,7 @@ function renderProgressBar(fraction: number, width: number, useColor: boolean, i
   }
 
   // Define colors
-  const fillCol = fraction < 0.2 ? 196 : isMuted ? 244 : 15; // Red if low, Dim Grey if muted, White otherwise
+  const fillCol = fraction < 0.2 ? 160 : isMuted ? 244 : 15; // Rich Red if low, Dim Grey if muted, White otherwise
   const trackCol = 237; // Consistent Dark Grey track
   const fg = (n: number) => `\x1b[38;5;${n}m`;
   const bg = (n: number) => `\x1b[48;5;${n}m`;
