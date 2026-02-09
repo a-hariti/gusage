@@ -70,12 +70,39 @@ const VALID_GEMINI_MODELS = new Set([
   'gemini-2.5-flash-lite',
 ]);
 
+function formatRelativeTime(dateString: string): string {
+  const now = new Date();
+  const resetTime = new Date(dateString);
+  const diffMs = resetTime.getTime() - now.getTime();
+
+  if (diffMs <= 0) return 'Resetting...';
+
+  const diffMins = Math.floor(diffMs / 60000);
+  const h = Math.floor(diffMins / 60);
+  const m = diffMins % 60;
+
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function parseVersion(modelId: string) {
+  const match = modelId.match(/gemini-(\d+)(?:\.(\d+))?-(.*)/);
+  if (match) {
+    return {
+      major: parseInt(match[1]!, 10),
+      minor: match[2] ? parseInt(match[2], 10) : 0,
+      suffix: match[3] || '',
+    };
+  }
+  return { major: 0, minor: 0, suffix: modelId };
+}
+
 async function getStats(): Promise<void> {
   const { values } = parseArgs({
     args: Bun.argv.slice(2),
     options: {
       help: { type: 'boolean', short: 'h' },
-      'output-format': { type: 'string', short: 'o', default: 'json' },
+      'output-format': { type: 'string', short: 'o', default: 'table' },
     },
     strict: true,
   });
@@ -86,14 +113,14 @@ Usage: gemini-usage [options]
 
 Options:
   -h, --help                Show this help message
-  -o, --output-format <fmt> Output format: json (default)
+  -o, --output-format <fmt> Output format: table (default), json
     `);
     return;
   }
 
   const outputFormat = values['output-format'];
-  if (outputFormat !== 'json') {
-    console.error(`Error: Unsupported output format "${outputFormat}". Only "json" is supported.`);
+  if (outputFormat !== 'json' && outputFormat !== 'table') {
+    console.error(`Error: Unsupported output format "${outputFormat}". Use "table" or "json".`);
     process.exit(1);
   }
 
@@ -161,12 +188,47 @@ Options:
 
   // 3. Filter and Output
   if (quotaData.buckets) {
-    quotaData.buckets = quotaData.buckets.filter(b =>
-      b.modelId && VALID_GEMINI_MODELS.has(b.modelId)
-    );
+    quotaData.buckets = quotaData.buckets
+      .filter(b => b.modelId && VALID_GEMINI_MODELS.has(b.modelId))
+      .sort((a, b) => {
+        const vA = parseVersion(a.modelId!);
+        const vB = parseVersion(b.modelId!);
+        if (vA.major !== vB.major) return vB.major - vA.major;
+        if (vA.minor !== vB.minor) return vB.minor - vA.minor;
+        return vB.suffix.localeCompare(vA.suffix);
+      });
   }
 
-  console.log(JSON.stringify(quotaData, null, 2));
+  if (outputFormat === 'json') {
+    console.log(JSON.stringify(quotaData.buckets, null, 2));
+  } else {
+    if (!quotaData.buckets || quotaData.buckets.length === 0) {
+      console.log('No quota data available.');
+      return;
+    }
+
+    const headers = ['Gemini Model', 'Remaining %          ', 'Reset Time'];
+    const rows = quotaData.buckets.map(b => [
+      b.modelId || 'N/A',
+      b.remainingFraction ? `${(b.remainingFraction * 100).toFixed(1)}%` : 'N/A',
+      b.resetTime ? formatRelativeTime(b.resetTime) : 'N/A'
+    ]);
+
+    // Calculate column widths
+    const widths = headers.map((h, i) => Math.max(h.length, ...rows.map(r => r[i]!.length)));
+
+    // Print header
+    const headerRow = headers.map((h, i) => h.padEnd(widths[i]!)).join('  ');
+    console.log(headerRow);
+    console.log('─'.repeat(headerRow.length));
+
+    // Print rows
+    rows
+		.map(r => r.map((cell, i) => i == 0 ? cell.replace("gemini-", "") : cell))
+		.forEach(r => {
+      console.log(r.map((cell, i) => cell.padEnd(widths[i]!)).join('  '));
+    });
+  }
 }
 
 getStats().catch(err => {
