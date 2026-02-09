@@ -3,7 +3,7 @@
  *
  * Standalone script to export quota and usage statistics from Gemini CLI as JSON.
  * This script reverse-engineers the CLI's authentication and API logic to provide
- * a sub-second, machine-readable output.
+ * a sub-second, human or machine-readable output.
  */
 
 import fs from 'node:fs';
@@ -274,12 +274,14 @@ Options:
     const headers = ['Gemini Model', 'Remaining %', 'Reset Time'];
     // We'll use a fixed bar width
     const BAR_WIDTH = 20;
+    const terminalWidth = process.stdout.columns || 80;
+    const showBar = terminalWidth > 60; // Only show bar if terminal is reasonably wide
 
     const tableData = quotaData.buckets.map((b) => {
       const fraction = b.remainingFraction ?? 0;
       const isMuted = SEONDARY_MODELS.includes(b.modelId!);
       const model = b.modelId!.replace('gemini-', '');
-      const bar = renderProgressBar(fraction, BAR_WIDTH, useColor, isMuted);
+      const bar = showBar ? renderProgressBar(fraction, BAR_WIDTH, useColor, isMuted) : '';
       const pct = `${Math.round(fraction * 100)}%`.padStart(4);
       const reset = b.resetTime ? formatRelativeTime(b.resetTime) : 'N/A';
 
@@ -288,7 +290,7 @@ Options:
 
     // Calculate column widths
     const modelWidth = Math.max(headers[0]!.length, ...tableData.map((d) => d.model.length));
-    const remainingWidth = Math.max(headers[1]!.length, BAR_WIDTH + 2 + 4); // bar + spacing + pct
+    const remainingWidth = Math.max(headers[1]!.length, showBar ? BAR_WIDTH + 1 + 4 : 4); // bar + space + pct
     const resetWidth = Math.max(headers[2]!.length, ...tableData.map((d) => d.reset.length));
 
     // Print header
@@ -302,7 +304,9 @@ Options:
     // Print rows
     tableData.forEach((d, idx) => {
       const m = d.model.padEnd(modelWidth);
-      const r_content = `${d.bar} ${colors.dim}${d.pct}${colors.reset}`;
+      const r_content = showBar
+        ? `${d.bar} ${colors.dim}${d.pct}${colors.reset}`
+        : `${colors.dim}${d.pct}${colors.reset}`;
       const r = padVisual(r_content, remainingWidth);
       const t = d.reset.padEnd(resetWidth);
 
