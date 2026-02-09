@@ -1,3 +1,4 @@
+#!/usr/bin/env bun
 /**
  * Gemini CLI Stats Exporter
  *
@@ -147,7 +148,7 @@ function padVisual(str: string, width: number, side: 'left' | 'right' = 'right')
   return side === 'right' ? str + pad : pad + str;
 }
 
-async function main(): Promise<void> {
+export default async function main(): Promise<void> {
   const args = Bun.argv.slice(2);
   const watchIdx = args.findIndex((a) => a === '--watch' || a === '-w');
   // If --watch/-w is present but not followed by a value (or followed by another flag), insert default '10s'
@@ -168,7 +169,7 @@ async function main(): Promise<void> {
 
   if (values.help) {
     console.log(`
-Usage: gemini-usage [options]
+Usage: gusage [options]
 
 Options:
   -h, --help                Show this help message
@@ -399,11 +400,13 @@ Options:
   }
 }
 
-main().catch((err) => {
-  const message = err instanceof Error ? err.message : String(err);
-  console.error('Fatal Error:', message);
-  process.exit(1);
-});
+if (import.meta.main) {
+  main().catch((err) => {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('Fatal Error:', message);
+    process.exit(1);
+  });
+}
 
 // --- Utilities ---
 
