@@ -70,6 +70,11 @@ const VALID_GEMINI_MODELS = new Set([
   'gemini-2.5-flash-lite',
 ]);
 
+const SEONDARY_MODELS = [
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+];
+
 function formatRelativeTime(dateString: string): string {
   const now = new Date();
   const resetTime = new Date(dateString);
@@ -97,7 +102,7 @@ function parseVersion(modelId: string) {
   return { major: 0, minor: 0, suffix: modelId };
 }
 
-function renderProgressBar(fraction: number, width: number, useColor: boolean): string {
+function renderProgressBar(fraction: number, width: number, useColor: boolean, isMuted: boolean = false): string {
   const BLOCKS = ['', '▏', '▎', '▍', '▌', '▋', '▊', '▉'];
   const units = Math.round(Math.max(0, Math.min(1, fraction)) * width * 8);
   const full = Math.floor(units / 8);
@@ -115,8 +120,9 @@ function renderProgressBar(fraction: number, width: number, useColor: boolean): 
     return bar;
   }
 
-  const fillCol = fraction < 0.2 ? 196 : 15; // Red if low, Default White otherwise
-  const trackCol = 237; // Dark Grey
+  // Define colors
+  const fillCol = fraction < 0.2 ? 196 : (isMuted ? 244 : 15); // Red if low, Dim Grey if muted, White otherwise
+  const trackCol = 237; // Consistent Dark Grey track
   const fg = (n: number) => `\x1b[38;5;${n}m`;
   const bg = (n: number) => `\x1b[48;5;${n}m`;
   const reset = `\x1b[0m`;
@@ -274,8 +280,9 @@ Options:
 
     const tableData = quotaData.buckets.map(b => {
       const fraction = b.remainingFraction ?? 0;
+      const isMuted = SEONDARY_MODELS.includes(b.modelId!);
       const model = b.modelId!.replace("gemini-", "");
-      const bar = renderProgressBar(fraction, BAR_WIDTH, useColor);
+      const bar = renderProgressBar(fraction, BAR_WIDTH, useColor, isMuted);
       const pct = `${Math.round(fraction * 100)}%`.padStart(4);
       const reset = b.resetTime ? formatRelativeTime(b.resetTime) : 'N/A';
 
@@ -291,22 +298,21 @@ Options:
     const h0 = headers[0]!.padEnd(modelWidth);
     const h1 = headers[1]!.padEnd(remainingWidth);
     const h2 = headers[2]!.padEnd(resetWidth);
-    const sep = `${colors.dim}│${colors.reset}`;
-    const headerRow = `${h0}  ${sep}  ${h1}  ${sep}  ${h2}`;
+    const headerRow = `${h0}    ${h1}    ${h2}`;
     console.log(headerRow);
     console.log(`${colors.dim}${'─'.repeat(visualLength(headerRow))}${colors.reset}`);
 
     // Print rows
     tableData.forEach((d, idx) => {
       const m = d.model.padEnd(modelWidth);
-      const r_content = `${d.bar}  ${colors.dim}${d.pct}${colors.reset}`;
+      const r_content = `${d.bar} ${colors.dim}${d.pct}${colors.reset}`;
       const r = padVisual(r_content, remainingWidth);
       const t = d.reset.padEnd(resetWidth);
 
-      console.log(`${m}  ${colors.dim}│${colors.reset}  ${r}  ${colors.dim}│${colors.reset}  ${t}`);
+      console.log(`${m}    ${r}    ${t}`);
 
       if (idx < tableData.length - 1) {
-        console.log(`${' '.repeat(modelWidth)}  ${colors.dim}│${colors.reset}  ${' '.repeat(remainingWidth)}  ${colors.dim}│${colors.reset}`);
+        console.log('');
       }
     });
   }
