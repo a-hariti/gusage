@@ -1,6 +1,6 @@
 {
   "name": "gusage",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "A standalone CLI to export Gemini CLI quota and usage statistics",
   "module": "index.ts",
   "type": "module",

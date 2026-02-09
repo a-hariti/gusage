@@ -3,7 +3,7 @@
 A standalone, sub-second CLI to export and monitor Gemini CLI quota and usage statistics.
 
 <p align="center">
-    <img src="assets/demo.png" width="500" />
+    <img src="https://raw.githubusercontent.com/a-hariti/gusage/master/assets/demo.png" width="500" />
 </p>
 
 This tool reverse-engineers the internal API handshakes used by the main Gemini CLI to fetch usage statistics.
