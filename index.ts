@@ -97,6 +97,53 @@ function parseVersion(modelId: string) {
   return { major: 0, minor: 0, suffix: modelId };
 }
 
+function renderProgressBar(fraction: number, width: number, useColor: boolean): string {
+  const BLOCKS = ['', '▏', '▎', '▍', '▌', '▋', '▊', '▉'];
+  const units = Math.round(Math.max(0, Math.min(1, fraction)) * width * 8);
+  const full = Math.floor(units / 8);
+  const rem = units % 8;
+
+  if (!useColor) {
+    let bar = '█'.repeat(full);
+    if (full < width) {
+      bar += BLOCKS[rem] || '';
+    }
+    const remaining = width - visualLength(bar);
+    if (remaining > 0) {
+      bar += '░'.repeat(remaining);
+    }
+    return bar;
+  }
+
+  const fillCol = 39; // Gemini Cyan
+  const trackCol = 237; // Dark Grey
+  const fg = (n: number) => `\x1b[38;5;${n}m`;
+  const bg = (n: number) => `\x1b[48;5;${n}m`;
+  const reset = `\x1b[0m`;
+
+  let bar = bg(trackCol);
+  for (let i = 0; i < width; i++) {
+    if (i < full) {
+      bar += fg(fillCol) + '█';
+    } else if (i === full && rem > 0) {
+      bar += fg(fillCol) + BLOCKS[rem];
+    } else {
+      bar += fg(trackCol) + '█';
+    }
+  }
+  return bar + reset;
+}
+
+function visualLength(str: string): number {
+  return str.replace(/\x1b\[[0-9;]*m/g, '').length;
+}
+
+function padVisual(str: string, width: number, side: 'left' | 'right' = 'right'): string {
+  const len = visualLength(str);
+  const pad = ' '.repeat(Math.max(0, width - len));
+  return side === 'right' ? str + pad : pad + str;
+}
+
 async function getStats(): Promise<void> {
   const { values } = parseArgs({
     args: Bun.argv.slice(2),
@@ -208,6 +255,7 @@ Options:
         const vB = parseVersion(b.modelId!);
         if (vA.major !== vB.major) return vB.major - vA.major;
         if (vA.minor !== vB.minor) return vB.minor - vA.minor;
+        // If versions are equal, sort suffixes descending
         return vB.suffix.localeCompare(vA.suffix);
       });
   }
@@ -220,26 +268,46 @@ Options:
       return;
     }
 
-    const headers = ['Gemini Model', 'Remaining %          ', 'Reset Time'];
-    const rows = quotaData.buckets.map(b => [
-      b.modelId || 'N/A',
-      b.remainingFraction ? `${(b.remainingFraction * 100).toFixed(1)}%` : 'N/A',
-      b.resetTime ? formatRelativeTime(b.resetTime) : 'N/A'
-    ]);
+    const headers = ['Gemini Model', 'Remaining %', 'Reset Time'];
+    // We'll use a fixed bar width
+    const BAR_WIDTH = 20;
+
+    const tableData = quotaData.buckets.map(b => {
+      const fraction = b.remainingFraction ?? 0;
+      const model = b.modelId!.replace("gemini-", "");
+      const bar = renderProgressBar(fraction, BAR_WIDTH, useColor);
+      const pct = `${Math.round(fraction * 100)}%`.padStart(4);
+      const reset = b.resetTime ? formatRelativeTime(b.resetTime) : 'N/A';
+
+      return { model, bar, pct, reset };
+    });
 
     // Calculate column widths
-    const widths = headers.map((h, i) => Math.max(h.length, ...rows.map(r => r[i]!.length)));
+    const modelWidth = Math.max(headers[0]!.length, ...tableData.map(d => d.model.length));
+    const remainingWidth = Math.max(headers[1]!.length, BAR_WIDTH + 2 + 4); // bar + spacing + pct
+    const resetWidth = Math.max(headers[2]!.length, ...tableData.map(d => d.reset.length));
 
     // Print header
-    const headerRow = headers.map((h, i) => h.padEnd(widths[i]!)).join('  ');
+    const h0 = headers[0]!.padEnd(modelWidth);
+    const h1 = headers[1]!.padEnd(remainingWidth);
+    const h2 = headers[2]!.padEnd(resetWidth);
+    const sep = `${colors.dim}│${colors.reset}`;
+    const headerRow = `${h0}  ${sep}  ${h1}  ${sep}  ${h2}`;
     console.log(headerRow);
-    console.log(`${colors.dim}${'─'.repeat(headerRow.length)}${colors.reset}`);
+    console.log(`${colors.dim}${'─'.repeat(visualLength(headerRow))}${colors.reset}`);
 
     // Print rows
-    rows
-		.map(r => r.map((cell, i) => i == 0 ? cell.replace("gemini-", "") : cell))
-		.forEach(r => {
-      console.log(r.map((cell, i) => cell.padEnd(widths[i]!)).join('  '));
+    tableData.forEach((d, idx) => {
+      const m = d.model.padEnd(modelWidth);
+      const r_content = `${d.bar}  ${colors.dim}${d.pct}${colors.reset}`;
+      const r = padVisual(r_content, remainingWidth);
+      const t = d.reset.padEnd(resetWidth);
+
+      console.log(`${m}  ${colors.dim}│${colors.reset}  ${r}  ${colors.dim}│${colors.reset}  ${t}`);
+
+      if (idx < tableData.length - 1) {
+        console.log(`${' '.repeat(modelWidth)}  ${colors.dim}│${colors.reset}  ${' '.repeat(remainingWidth)}  ${colors.dim}│${colors.reset}`);
+      }
     });
   }
 }
