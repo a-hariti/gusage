@@ -356,7 +356,7 @@ Options:
         const pct = `${Math.round(fraction * 100)}%`.padStart(4);
         const reset = b.resetTime ? formatRelativeTime(b.resetTime) : 'N/A';
 
-        return { model, bar, pct, reset };
+        return { model, bar, pct, reset, isMuted };
       });
 
       // Calculate column widths
@@ -374,12 +374,14 @@ Options:
 
       // Print rows
       tableData.forEach((d, idx) => {
-        const m = d.model.padEnd(modelWidth);
+        const modelLabel = d.isMuted ? `${colors.dim}${d.model}${colors.reset}` : d.model;
+        const m = padVisual(modelLabel, modelWidth);
         const r_content = showBar
           ? `${d.bar} ${colors.dim}${d.pct}${colors.reset}`
           : `${colors.dim}${d.pct}${colors.reset}`;
         const r = padVisual(r_content, remainingWidth);
-        const t = d.reset.padEnd(resetWidth);
+        const resetLabel = d.isMuted ? `${colors.dim}${d.reset}${colors.reset}` : d.reset;
+        const t = padVisual(resetLabel, resetWidth);
 
         console.log(`${m}    ${r}    ${t}`);
 
