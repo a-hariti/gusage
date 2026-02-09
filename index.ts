@@ -70,10 +70,7 @@ const VALID_GEMINI_MODELS = new Set([
   'gemini-2.5-flash-lite',
 ]);
 
-const SEONDARY_MODELS = [
-  'gemini-2.5-flash',
-  'gemini-2.5-flash-lite',
-];
+const SEONDARY_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite'];
 
 function formatRelativeTime(dateString: string): string {
   const now = new Date();
@@ -121,7 +118,7 @@ function renderProgressBar(fraction: number, width: number, useColor: boolean, i
   }
 
   // Define colors
-  const fillCol = fraction < 0.2 ? 196 : (isMuted ? 244 : 15); // Red if low, Dim Grey if muted, White otherwise
+  const fillCol = fraction < 0.2 ? 196 : isMuted ? 244 : 15; // Red if low, Dim Grey if muted, White otherwise
   const trackCol = 237; // Consistent Dark Grey track
   const fg = (n: number) => `\x1b[38;5;${n}m`;
   const bg = (n: number) => `\x1b[48;5;${n}m`;
@@ -200,7 +197,7 @@ Options:
   let token = creds.access_token;
 
   // Check if token is expired (with 1 min buffer)
-  const isExpired = creds.expiry_date && (Date.now() > (creds.expiry_date - 60000));
+  const isExpired = creds.expiry_date && Date.now() > creds.expiry_date - 60000;
 
   if (isExpired && creds.refresh_token) {
     try {
@@ -214,7 +211,7 @@ Options:
   }
 
   const baseUrl = `${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}`;
-  const authHeader = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+  const authHeader = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
   // 1. Get Project ID via loadCodeAssist
   const loadResponse = await fetch(`${baseUrl}:loadCodeAssist`, {
@@ -230,7 +227,7 @@ Options:
     process.exit(1);
   }
 
-  const loadData = await loadResponse.json() as LoadCodeAssistResponse;
+  const loadData = (await loadResponse.json()) as LoadCodeAssistResponse;
   const projectId = loadData.cloudaicompanionProject || process.env['GOOGLE_CLOUD_PROJECT'];
 
   if (!projectId) {
@@ -250,12 +247,12 @@ Options:
     process.exit(1);
   }
 
-  const quotaData = await quotaResponse.json() as QuotaResponse;
+  const quotaData = (await quotaResponse.json()) as QuotaResponse;
 
   // 3. Filter and Output
   if (quotaData.buckets) {
     quotaData.buckets = quotaData.buckets
-      .filter(b => b.modelId && VALID_GEMINI_MODELS.has(b.modelId))
+      .filter((b) => b.modelId && VALID_GEMINI_MODELS.has(b.modelId))
       .sort((a, b) => {
         const vA = parseVersion(a.modelId!);
         const vB = parseVersion(b.modelId!);
@@ -278,10 +275,10 @@ Options:
     // We'll use a fixed bar width
     const BAR_WIDTH = 20;
 
-    const tableData = quotaData.buckets.map(b => {
+    const tableData = quotaData.buckets.map((b) => {
       const fraction = b.remainingFraction ?? 0;
       const isMuted = SEONDARY_MODELS.includes(b.modelId!);
-      const model = b.modelId!.replace("gemini-", "");
+      const model = b.modelId!.replace('gemini-', '');
       const bar = renderProgressBar(fraction, BAR_WIDTH, useColor, isMuted);
       const pct = `${Math.round(fraction * 100)}%`.padStart(4);
       const reset = b.resetTime ? formatRelativeTime(b.resetTime) : 'N/A';
@@ -290,9 +287,9 @@ Options:
     });
 
     // Calculate column widths
-    const modelWidth = Math.max(headers[0]!.length, ...tableData.map(d => d.model.length));
+    const modelWidth = Math.max(headers[0]!.length, ...tableData.map((d) => d.model.length));
     const remainingWidth = Math.max(headers[1]!.length, BAR_WIDTH + 2 + 4); // bar + spacing + pct
-    const resetWidth = Math.max(headers[2]!.length, ...tableData.map(d => d.reset.length));
+    const resetWidth = Math.max(headers[2]!.length, ...tableData.map((d) => d.reset.length));
 
     // Print header
     const h0 = headers[0]!.padEnd(modelWidth);
@@ -318,7 +315,7 @@ Options:
   }
 }
 
-getStats().catch(err => {
+getStats().catch((err) => {
   const message = err instanceof Error ? err.message : String(err);
   console.error('Fatal Error:', message);
   process.exit(1);
@@ -387,7 +384,7 @@ function loadLocalCredentials(): LegacyCredentials | null {
           access_token: mainAccount.token.accessToken,
           refresh_token: mainAccount.token.refreshToken,
           expiry_date: mainAccount.token.expiresAt,
-          token_type: mainAccount.token.tokenType
+          token_type: mainAccount.token.tokenType,
         };
       }
     } catch (e) {
