@@ -200,7 +200,7 @@ Options:
   }
 
   if (outputFormat === 'json') {
-    console.log(JSON.stringify(quotaData.buckets, null, 2));
+    console.log(JSON.stringify(quotaData.buckets || [], null, 2));
   } else {
     if (!quotaData.buckets || quotaData.buckets.length === 0) {
       console.log('No quota data available.');
