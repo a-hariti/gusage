@@ -103,6 +103,7 @@ async function getStats(): Promise<void> {
     options: {
       help: { type: 'boolean', short: 'h' },
       'output-format': { type: 'string', short: 'o', default: 'table' },
+      'no-color': { type: 'boolean' },
     },
     strict: true,
   });
@@ -114,9 +115,21 @@ Usage: gemini-usage [options]
 Options:
   -h, --help                Show this help message
   -o, --output-format <fmt> Output format: table (default), json
+  --no-color                Disable color output
     `);
     return;
   }
+
+  const useColor = !values['no-color'] && process.stdout.isTTY;
+
+  const colors = {
+    reset: useColor ? '\x1b[0m' : '',
+    dim: useColor ? '\x1b[2m' : '',
+    cyan: useColor ? '\x1b[36m' : '',
+    green: useColor ? '\x1b[32m' : '',
+    yellow: useColor ? '\x1b[33m' : '',
+    red: useColor ? '\x1b[31m' : '',
+  };
 
   const outputFormat = values['output-format'];
   if (outputFormat !== 'json' && outputFormat !== 'table') {
@@ -220,7 +233,7 @@ Options:
     // Print header
     const headerRow = headers.map((h, i) => h.padEnd(widths[i]!)).join('  ');
     console.log(headerRow);
-    console.log('─'.repeat(headerRow.length));
+    console.log(`${colors.dim}${'─'.repeat(headerRow.length)}${colors.reset}`);
 
     // Print rows
     rows
