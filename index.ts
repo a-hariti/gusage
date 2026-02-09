@@ -147,7 +147,7 @@ function padVisual(str: string, width: number, side: 'left' | 'right' = 'right')
   return side === 'right' ? str + pad : pad + str;
 }
 
-async function getStats(): Promise<void> {
+async function main(): Promise<void> {
   const { values } = parseArgs({
     args: Bun.argv.slice(2),
     options: {
@@ -315,7 +315,7 @@ Options:
   }
 }
 
-getStats().catch((err) => {
+main().catch((err) => {
   const message = err instanceof Error ? err.message : String(err);
   console.error('Fatal Error:', message);
   process.exit(1);
