@@ -148,12 +148,20 @@ function padVisual(str: string, width: number, side: 'left' | 'right' = 'right')
 }
 
 async function main(): Promise<void> {
+  const args = Bun.argv.slice(2);
+  const watchIdx = args.findIndex((a) => a === '--watch' || a === '-w');
+  // If --watch/-w is present but not followed by a value (or followed by another flag), insert default '10s'
+  if (watchIdx !== -1 && (watchIdx === args.length - 1 || args[watchIdx + 1]!.startsWith('-'))) {
+    args.splice(watchIdx + 1, 0, '10s');
+  }
+
   const { values } = parseArgs({
-    args: Bun.argv.slice(2),
+    args,
     options: {
       help: { type: 'boolean', short: 'h' },
       'output-format': { type: 'string', short: 'o', default: 'table' },
       'no-color': { type: 'boolean' },
+      watch: { type: 'string', short: 'w' },
     },
     strict: true,
   });
@@ -164,13 +172,42 @@ Usage: gemini-usage [options]
 
 Options:
   -h, --help                Show this help message
+  -w, --watch [interval]    Update live every interval (default: 10s).
+                            Supports combined units: 20s, 5m, 1m20s.
   -o, --output-format <fmt> Output format: table (default), json
   --no-color                Disable color output
     `);
     return;
   }
 
-  const useColor = !values['no-color'] && process.stdout.isTTY;
+  const outputFormat = values['output-format'];
+  if (outputFormat !== 'json' && outputFormat !== 'table') {
+    console.error(`Error: Unsupported output format "${outputFormat}". Use "table" or "json".`);
+    process.exit(1);
+  }
+
+  const isWatching = values.watch !== undefined;
+  let intervalMs = 10000;
+  let intervalStr = '10s';
+  if (values.watch) {
+    let totalMs = 0;
+    const matches = values.watch.matchAll(/(\d+)(h|m|s)?/g);
+    let found = false;
+    for (const match of matches) {
+      found = true;
+      const val = parseInt(match[1]!, 10);
+      const unit = match[2] || 's';
+      if (unit === 's') totalMs += val * 1000;
+      else if (unit === 'm') totalMs += val * 60000;
+      else if (unit === 'h') totalMs += val * 3600000;
+    }
+    if (found) {
+      intervalMs = totalMs;
+      intervalStr = values.watch;
+    }
+  }
+
+  const useColor = !values['no-color'] && !process.env.NO_COLOR && process.stdout.isTTY;
 
   const colors = {
     reset: useColor ? '\x1b[0m' : '',
@@ -179,143 +216,186 @@ Options:
     green: useColor ? '\x1b[32m' : '',
     yellow: useColor ? '\x1b[33m' : '',
     red: useColor ? '\x1b[31m' : '',
+    clear: useColor ? '\x1b[2J\x1b[H' : '',
+    hideCursor: useColor ? '\x1b[?25l' : '',
+    showCursor: useColor ? '\x1b[?25h' : '',
   };
 
-  const outputFormat = values['output-format'];
-  if (outputFormat !== 'json' && outputFormat !== 'table') {
-    console.error(`Error: Unsupported output format "${outputFormat}". Use "table" or "json".`);
-    process.exit(1);
-  }
-
-  const creds = loadLocalCredentials();
-
-  if (!creds) {
-    console.error('Error: No credentials found. Please run "gemini login" first.');
-    process.exit(1);
-  }
-
-  let token = creds.access_token;
-
-  // Check if token is expired (with 1 min buffer)
-  const isExpired = creds.expiry_date && Date.now() > creds.expiry_date - 60000;
-
-  if (isExpired && creds.refresh_token) {
-    try {
-      const refreshed = await refreshAccessToken(creds.refresh_token);
-      token = refreshed.access_token;
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      console.error('Error: Failed to refresh access token.', message);
-      // Try to proceed with old token anyway
+  const cleanup = () => {
+    if (isWatching && process.stdin.isTTY) {
+      process.stdin.setRawMode(false);
+      process.stdin.pause();
     }
-  }
+    process.stdout.write(colors.showCursor);
+  };
 
-  const baseUrl = `${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}`;
-  const authHeader = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  const CTRL_C = '\u0003';
+  const CTRL_D = '\u0004';
 
-  // 1. Get Project ID via loadCodeAssist
-  const loadResponse = await fetch(`${baseUrl}:loadCodeAssist`, {
-    method: 'POST',
-    headers: authHeader,
-    body: JSON.stringify({
-      metadata: { ideType: 'GEMINI_CLI', platform: 'PLATFORM_UNSPECIFIED', pluginType: 'GEMINI' },
-    }),
-  });
-
-  if (!loadResponse.ok) {
-    console.error(`Error: loadCodeAssist failed (${loadResponse.status})`);
-    process.exit(1);
-  }
-
-  const loadData = (await loadResponse.json()) as LoadCodeAssistResponse;
-  const projectId = loadData.cloudaicompanionProject || process.env['GOOGLE_CLOUD_PROJECT'];
-
-  if (!projectId) {
-    console.error('Error: Could not determine Project ID.');
-    process.exit(1);
-  }
-
-  // 2. Get Quota
-  const quotaResponse = await fetch(`${baseUrl}:retrieveUserQuota`, {
-    method: 'POST',
-    headers: authHeader,
-    body: JSON.stringify({ project: projectId }),
-  });
-
-  if (!quotaResponse.ok) {
-    console.error(`Error: retrieveUserQuota failed (${quotaResponse.status})`);
-    process.exit(1);
-  }
-
-  const quotaData = (await quotaResponse.json()) as QuotaResponse;
-
-  // 3. Filter and Output
-  if (quotaData.buckets) {
-    quotaData.buckets = quotaData.buckets
-      .filter((b) => b.modelId && VALID_GEMINI_MODELS.has(b.modelId))
-      .sort((a, b) => {
-        const vA = parseVersion(a.modelId!);
-        const vB = parseVersion(b.modelId!);
-        if (vA.major !== vB.major) return vB.major - vA.major;
-        if (vA.minor !== vB.minor) return vB.minor - vA.minor;
-        // If versions are equal, sort suffixes descending
-        return vB.suffix.localeCompare(vA.suffix);
-      });
-  }
-
-  if (outputFormat === 'json') {
-    console.log(JSON.stringify(quotaData.buckets || [], null, 2));
-  } else {
-    if (!quotaData.buckets || quotaData.buckets.length === 0) {
-      console.log('No quota data available.');
-      return;
-    }
-
-    const headers = ['Gemini Model', 'Remaining %', 'Reset Time'];
-    // We'll use a fixed bar width
-    const BAR_WIDTH = 20;
-    const terminalWidth = process.stdout.columns || 80;
-    const showBar = terminalWidth > 60; // Only show bar if terminal is reasonably wide
-
-    const tableData = quotaData.buckets.map((b) => {
-      const fraction = b.remainingFraction ?? 0;
-      const isMuted = SEONDARY_MODELS.includes(b.modelId!);
-      const model = b.modelId!.replace('gemini-', '');
-      const bar = showBar ? renderProgressBar(fraction, BAR_WIDTH, useColor, isMuted) : '';
-      const pct = `${Math.round(fraction * 100)}%`.padStart(4);
-      const reset = b.resetTime ? formatRelativeTime(b.resetTime) : 'N/A';
-
-      return { model, bar, pct, reset };
-    });
-
-    // Calculate column widths
-    const modelWidth = Math.max(headers[0]!.length, ...tableData.map((d) => d.model.length));
-    const remainingWidth = Math.max(headers[1]!.length, showBar ? BAR_WIDTH + 1 + 4 : 4); // bar + space + pct
-    const resetWidth = Math.max(headers[2]!.length, ...tableData.map((d) => d.reset.length));
-
-    // Print header
-    const h0 = headers[0]!.padEnd(modelWidth);
-    const h1 = headers[1]!.padEnd(remainingWidth);
-    const h2 = headers[2]!.padEnd(resetWidth);
-    const headerRow = `${h0}    ${h1}    ${h2}`;
-    console.log(headerRow);
-    console.log(`${colors.dim}${'─'.repeat(visualLength(headerRow))}${colors.reset}`);
-
-    // Print rows
-    tableData.forEach((d, idx) => {
-      const m = d.model.padEnd(modelWidth);
-      const r_content = showBar
-        ? `${d.bar} ${colors.dim}${d.pct}${colors.reset}`
-        : `${colors.dim}${d.pct}${colors.reset}`;
-      const r = padVisual(r_content, remainingWidth);
-      const t = d.reset.padEnd(resetWidth);
-
-      console.log(`${m}    ${r}    ${t}`);
-
-      if (idx < tableData.length - 1) {
-        console.log('');
+  if (isWatching && process.stdin.isTTY) {
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdin.on('data', (data) => {
+      const key = data.toString();
+      if (key === 'q' || key === CTRL_C || key === CTRL_D) {
+        cleanup();
+        process.exit(0);
       }
     });
+    process.stdout.write(colors.hideCursor);
+  }
+
+  process.on('SIGINT', () => {
+    cleanup();
+    process.exit(0);
+  });
+  process.on('SIGTERM', () => {
+    cleanup();
+    process.exit(0);
+  });
+
+  const run = async () => {
+    const creds = loadLocalCredentials();
+
+    if (!creds) {
+      console.error('Error: No credentials found. Please run "gemini login" first.');
+      process.exit(1);
+    }
+
+    let token = creds.access_token;
+
+    // Check if token is expired (with 1 min buffer)
+    const isExpired = creds.expiry_date && Date.now() > creds.expiry_date - 60000;
+
+    if (isExpired && creds.refresh_token) {
+      try {
+        const refreshed = await refreshAccessToken(creds.refresh_token);
+        token = refreshed.access_token;
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        console.error('Error: Failed to refresh access token.', message);
+        // Try to proceed with old token anyway
+      }
+    }
+
+    const baseUrl = `${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}`;
+    const authHeader = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+
+    // 1. Get Project ID via loadCodeAssist
+    const loadResponse = await fetch(`${baseUrl}:loadCodeAssist`, {
+      method: 'POST',
+      headers: authHeader,
+      body: JSON.stringify({
+        metadata: { ideType: 'GEMINI_CLI', platform: 'PLATFORM_UNSPECIFIED', pluginType: 'GEMINI' },
+      }),
+    });
+
+    if (!loadResponse.ok) {
+      console.error(`Error: loadCodeAssist failed (${loadResponse.status})`);
+      process.exit(1);
+    }
+
+    const loadData = (await loadResponse.json()) as LoadCodeAssistResponse;
+    const projectId = loadData.cloudaicompanionProject || process.env['GOOGLE_CLOUD_PROJECT'];
+
+    if (!projectId) {
+      console.error('Error: Could not determine Project ID.');
+      process.exit(1);
+    }
+
+    // 2. Get Quota
+    const quotaResponse = await fetch(`${baseUrl}:retrieveUserQuota`, {
+      method: 'POST',
+      headers: authHeader,
+      body: JSON.stringify({ project: projectId }),
+    });
+
+    if (!quotaResponse.ok) {
+      console.error(`Error: retrieveUserQuota failed (${quotaResponse.status})`);
+      process.exit(1);
+    }
+
+    const quotaData = (await quotaResponse.json()) as QuotaResponse;
+
+    // 3. Filter and Output
+    if (quotaData.buckets) {
+      quotaData.buckets = quotaData.buckets
+        .filter((b) => b.modelId && VALID_GEMINI_MODELS.has(b.modelId))
+        .sort((a, b) => {
+          const vA = parseVersion(a.modelId!);
+          const vB = parseVersion(b.modelId!);
+          if (vA.major !== vB.major) return vB.major - vA.major;
+          if (vA.minor !== vB.minor) return vB.minor - vA.minor;
+          // If versions are equal, sort suffixes descending
+          return vB.suffix.localeCompare(vA.suffix);
+        });
+    }
+
+    if (isWatching) process.stdout.write(colors.clear);
+
+    if (outputFormat === 'json') {
+      console.log(JSON.stringify(quotaData.buckets || [], null, 2));
+    } else {
+      if (!quotaData.buckets || quotaData.buckets.length === 0) {
+        console.log('No quota data available.');
+        return;
+      }
+
+      const headers = ['Gemini Model', 'Remaining %', 'Reset Time'];
+      // We'll use a fixed bar width
+      const BAR_WIDTH = 20;
+      const terminalWidth = process.stdout.columns || 80;
+      const showBar = terminalWidth > 60; // Only show bar if terminal is reasonably wide
+
+      const tableData = quotaData.buckets.map((b) => {
+        const fraction = b.remainingFraction ?? 0;
+        const isMuted = SEONDARY_MODELS.includes(b.modelId!);
+        const model = b.modelId!.replace('gemini-', '');
+        const bar = showBar ? renderProgressBar(fraction, BAR_WIDTH, useColor, isMuted) : '';
+        const pct = `${Math.round(fraction * 100)}%`.padStart(4);
+        const reset = b.resetTime ? formatRelativeTime(b.resetTime) : 'N/A';
+
+        return { model, bar, pct, reset };
+      });
+
+      // Calculate column widths
+      const modelWidth = Math.max(headers[0]!.length, ...tableData.map((d) => d.model.length));
+      const remainingWidth = Math.max(headers[1]!.length, showBar ? BAR_WIDTH + 1 + 4 : 4); // bar + space + pct
+      const resetWidth = Math.max(headers[2]!.length, ...tableData.map((d) => d.reset.length));
+
+      // Print header
+      const h0 = headers[0]!.padEnd(modelWidth);
+      const h1 = headers[1]!.padEnd(remainingWidth);
+      const h2 = headers[2]!.padEnd(resetWidth);
+      const headerRow = `${h0}    ${h1}    ${h2}`;
+      console.log(headerRow);
+      console.log(`${colors.dim}${'─'.repeat(visualLength(headerRow))}${colors.reset}`);
+
+      // Print rows
+      tableData.forEach((d, idx) => {
+        const m = d.model.padEnd(modelWidth);
+        const r_content = showBar
+          ? `${d.bar} ${colors.dim}${d.pct}${colors.reset}`
+          : `${colors.dim}${d.pct}${colors.reset}`;
+        const r = padVisual(r_content, remainingWidth);
+        const t = d.reset.padEnd(resetWidth);
+
+        console.log(`${m}    ${r}    ${t}`);
+
+        if (idx < tableData.length - 1) {
+          console.log('');
+        }
+      });
+
+      if (isWatching) {
+        console.log(`\n${colors.dim}Updating every ${intervalStr}, press q to quit${colors.reset}`);
+      }
+    }
+  };
+
+  await run();
+  if (isWatching) {
+    setInterval(run, intervalMs);
   }
 }
 
