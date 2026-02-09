@@ -1,6 +1,6 @@
 # gusage
 
-A standalone, sub-second CLI to export and monitor Gemini CLI quota and usage statistics.
+A CLI / TUI to monitor Gemini CLI usage.
 
 <p align="center">
     <img src="https://raw.githubusercontent.com/a-hariti/gusage/master/assets/demo.png" width="500" />
