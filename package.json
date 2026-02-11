@@ -1,6 +1,6 @@
 {
   "name": "gusage",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "A standalone CLI to export Gemini CLI quota and usage statistics",
   "module": "index.ts",
   "type": "module",
@@ -18,7 +18,8 @@
   "scripts": {
     "format": "prettier --write .",
     "prepare": "husky",
-    "build": "bun build ./index.ts --outfile dist/index.js && chmod +x dist/index.js"
+    "build": "bun build ./index.ts --outfile dist/index.js && chmod +x dist/index.js",
+    "prepack": "bun run build"
   },
   "lint-staged": {
     "*": "prettier --write --ignore-unknown",
