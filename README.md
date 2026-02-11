@@ -67,6 +67,7 @@ gusage --json --watch 5s | jq .
 - `-n, --notify [threshold]`: Send a desktop notification when a model drops below the threshold percent (default: `20`). Requires `--watch`.
 - `-j, --json`: Output raw JSON instead of a table. Can be combined with `--watch` for streaming data.
 - `--no-color`: Disable color output (also respects `NO_COLOR` env var).
+- `-v, --version`: Show version.
 
 ## Requirements
 

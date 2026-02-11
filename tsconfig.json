@@ -12,6 +12,7 @@
 
     // Bundler mode
     "moduleResolution": "NodeNext",
+    "resolveJsonModule": true,
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": false,
     "noEmit": true,

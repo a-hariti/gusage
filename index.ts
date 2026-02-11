@@ -13,6 +13,7 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import { parseArgs } from 'node:util';
 import { execSync, spawn } from 'node:child_process';
+import packageJson from './package.json' with { type: 'json' };
 
 // --- Types ---
 
@@ -212,6 +213,7 @@ function padVisual(str: string, width: number, side: 'left' | 'right' = 'right')
 }
 
 export default async function main(): Promise<void> {
+  const packageVersion: string = packageJson.version;
   const args = Bun.argv.slice(2);
   const watchIdx = args.findIndex((a) => a === '--watch' || a === '-w');
   // If --watch/-w is present but not followed by a value (or followed by another flag), insert default '10s'
@@ -228,6 +230,7 @@ export default async function main(): Promise<void> {
     args,
     options: {
       help: { type: 'boolean', short: 'h' },
+      version: { type: 'boolean', short: 'v' },
       json: { type: 'boolean', short: 'j' },
       'no-color': { type: 'boolean' },
       watch: { type: 'string', short: 'w' },
@@ -242,6 +245,7 @@ Usage: gusage [options]
 
 Options:
   -h, --help                Show this help message
+  -v, --version             Show version and exit
   -w, --watch [interval]    Update live every interval (default: 10s).
                             Supports combined units: 20s, 5m, 1m20s.
   -n, --notify [threshold]  Show a critical OS notification if any model falls below
@@ -249,6 +253,11 @@ Options:
   -j, --json                Output raw JSON instead of a table
   --no-color                Disable color output
     `);
+    return;
+  }
+
+  if (values.version) {
+    console.log(packageVersion);
     return;
   }
 
