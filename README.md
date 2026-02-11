@@ -11,6 +11,7 @@ This tool reverse-engineers the internal API handshakes used by the main Gemini 
 ## Features
 
 - **Live Monitoring:** Real-time quota updates using the `--watch` flag.
+- **Low-Quota Alerts:** Optional desktop notifications with `--notify` when usage drops below a threshold.
 - **Machine Readable:** Supports JSON output for easy integration with other tools.
 - **Fast:** Returns results in sub-second time.
 - **Smart Sorting:** Automatically sorts models to highlight the ones you care about.
@@ -46,6 +47,12 @@ gusage --watch
 # Monitor quota every 1 minute and 20 seconds
 gusage --watch 1m20s
 
+# Monitor quota and notify when any model falls below 20% (default threshold)
+gusage --watch --notify
+
+# Monitor quota and notify when any model falls below 15%
+gusage --watch 30s --notify 15
+
 # Output raw JSON for scripting
 gusage --json | jq .
 
@@ -57,12 +64,14 @@ gusage --json --watch 5s | jq .
 
 - `-h, --help`: Show help message.
 - `-w, --watch [interval]`: Update live every interval (default: 10s). Supports units like `20s`, `5m`, `1m20s`.
+- `-n, --notify [threshold]`: Send a desktop notification when a model drops below the threshold percent (default: `20`). Requires `--watch`.
 - `-j, --json`: Output raw JSON instead of a table. Can be combined with `--watch` for streaming data.
 - `--no-color`: Disable color output (also respects `NO_COLOR` env var).
 
 ## Requirements
 
 - **Authentication:** You must have already authenticated via the official Gemini CLI (`gemini login`).
+- **Notifications (Linux only):** `notify-send` must be installed when using `--notify`.
 
 ## License
 
