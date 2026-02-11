@@ -12,6 +12,7 @@ import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
 import { parseArgs } from 'node:util';
+import { execSync, spawn } from 'node:child_process';
 
 // --- Types ---
 
@@ -88,6 +89,68 @@ function formatRelativeTime(dateString: string): string {
   return `${m}m`;
 }
 
+function sendNotification(title: string, message: string) {
+  const spawnDetached = (command: string, args: string[]) => {
+    const child = spawn(command, args, { detached: true, stdio: 'ignore' });
+    // Prevent missing notification binaries from crashing the watcher.
+    child.on('error', () => {});
+    child.unref();
+  };
+
+  if (process.platform === 'darwin') {
+    const escapedMessage = message.replace(/"/g, '\\"');
+    const escapedTitle = title.replace(/"/g, '\\"');
+    const script = `display notification "${escapedMessage}" with title "${escapedTitle}"`;
+    spawnDetached('osascript', ['-e', script]);
+  } else if (process.platform === 'linux') {
+    spawnDetached('notify-send', [title, message]);
+  } else if (process.platform === 'win32') {
+    const command = `Add-Type -AssemblyName System.Windows.Forms; $g = [System.Windows.Forms.NotifyIcon]::new(); $g.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon("$PSHOME\\powershell.exe"); $g.Visible = $true; $g.ShowBalloonTip(5000, "${title.replace(/"/g, '`"')}", "${message.replace(/"/g, '`"')}", [System.Windows.Forms.ToolTipIcon]::Info);`;
+    spawnDetached('powershell', ['-Command', command]);
+  }
+}
+
+function checkNotificationSupport(): boolean {
+  if (process.platform === 'linux') {
+    try {
+      execSync('which notify-send', { stdio: 'ignore' });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+export function parseNotifyThresholdArg(raw: string | undefined): number | null {
+  if (raw === undefined) return null;
+
+  const thresholdPct = Number(raw);
+  if (!Number.isFinite(thresholdPct) || thresholdPct < 0 || thresholdPct > 100) {
+    throw new Error('Error: --notify threshold must be a number between 0 and 100.');
+  }
+  return thresholdPct / 100;
+}
+
+export function validateNotifyRuntime(
+  notifyThreshold: number | null,
+  isWatching: boolean,
+  hasNotificationSupport: boolean,
+): string | null {
+  if (notifyThreshold === null) return null;
+  if (!isWatching) return 'Error: --notify requires --watch.';
+  if (!hasNotificationSupport) return 'Error: --notify is not supported on this system (missing notify-send).';
+  return null;
+}
+
+export function shouldSendThresholdNotification(
+  prevFraction: number | undefined,
+  currentFraction: number,
+  threshold: number,
+): boolean {
+  return prevFraction !== undefined && prevFraction > threshold && currentFraction <= threshold;
+}
+
 function parseVersion(modelId: string) {
   const match = modelId.match(/gemini-(\d+)(?:\.(\d+))?-(.*)/);
   if (match) {
@@ -156,6 +219,11 @@ export default async function main(): Promise<void> {
     args.splice(watchIdx + 1, 0, '10s');
   }
 
+  const notifyIdx = args.findIndex((a) => a === '--notify' || a === '-n');
+  if (notifyIdx !== -1 && (notifyIdx === args.length - 1 || args[notifyIdx + 1]!.startsWith('-'))) {
+    args.splice(notifyIdx + 1, 0, '20');
+  }
+
   const { values } = parseArgs({
     args,
     options: {
@@ -163,6 +231,7 @@ export default async function main(): Promise<void> {
       json: { type: 'boolean', short: 'j' },
       'no-color': { type: 'boolean' },
       watch: { type: 'string', short: 'w' },
+      notify: { type: 'string', short: 'n' },
     },
     strict: true,
   });
@@ -175,6 +244,8 @@ Options:
   -h, --help                Show this help message
   -w, --watch [interval]    Update live every interval (default: 10s).
                             Supports combined units: 20s, 5m, 1m20s.
+  -n, --notify [threshold]  Show a critical OS notification if any model falls below
+                            the threshold (default: 20%; requires --watch).
   -j, --json                Output raw JSON instead of a table
   --no-color                Disable color output
     `);
@@ -204,6 +275,23 @@ Options:
   }
 
   const useColor = !values['no-color'] && !process.env.NO_COLOR && process.stdout.isTTY;
+
+  let notifyThreshold: number | null;
+  const lastFractions = new Map<string, number>();
+
+  try {
+    notifyThreshold = parseNotifyThresholdArg(values.notify);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(message);
+    process.exit(1);
+  }
+
+  const notifyRuntimeError = validateNotifyRuntime(notifyThreshold, isWatching, checkNotificationSupport());
+  if (notifyRuntimeError) {
+    console.error(notifyRuntimeError);
+    process.exit(1);
+  }
 
   const colors = {
     reset: useColor ? '\x1b[0m' : '',
@@ -325,6 +413,22 @@ Options:
           // If versions are equal, sort suffixes descending
           return vB.suffix.localeCompare(vA.suffix);
         });
+
+      if (notifyThreshold !== null) {
+        for (const b of quotaData.buckets) {
+          const fraction = b.remainingFraction ?? 0;
+          const modelId = b.modelId!;
+          const prevFraction = lastFractions.get(modelId);
+
+          if (shouldSendThresholdNotification(prevFraction, fraction, notifyThreshold)) {
+            sendNotification(
+              'Gemini Quota Alert',
+              `Model ${modelId} has dropped below ${Math.round(notifyThreshold * 100)}%.`,
+            );
+          }
+          lastFractions.set(modelId, fraction);
+        }
+      }
     }
 
     if (isWatching && !isJson) process.stdout.write(colors.clear);
@@ -363,7 +467,6 @@ Options:
       const h0 = headers[0]!.padEnd(modelWidth);
       const h1 = headers[1]!.padEnd(remainingWidth);
       const h2 = headers[2]!.padEnd(resetWidth);
-      const sep = `${colors.dim}│${colors.reset}`;
       const headerRow = `${h0}    ${h1}    ${h2}`;
       console.log(headerRow);
       console.log(`${colors.dim}${'─'.repeat(visualLength(headerRow))}${colors.reset}`);
