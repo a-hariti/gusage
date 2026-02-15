@@ -152,6 +152,28 @@ export function shouldSendThresholdNotification(
   return prevFraction !== undefined && prevFraction > threshold && currentFraction <= threshold;
 }
 
+export function parseWatchIntervalArg(raw: string): { intervalMs: number; intervalStr: string } | null {
+  let totalMs = 0;
+  let found = false;
+  const normalizedParts: string[] = [];
+
+  const matches = raw.matchAll(/(\d+)(h|m|s)?/g);
+  for (const match of matches) {
+    found = true;
+    const val = parseInt(match[1]!, 10);
+    const unit = match[2] || 's';
+
+    normalizedParts.push(`${val}${unit}`);
+
+    if (unit === 's') totalMs += val * 1000;
+    else if (unit === 'm') totalMs += val * 60000;
+    else if (unit === 'h') totalMs += val * 3600000;
+  }
+
+  if (!found) return null;
+  return { intervalMs: totalMs, intervalStr: normalizedParts.join('') };
+}
+
 function parseVersion(modelId: string) {
   const match = modelId.match(/gemini-(\d+)(?:\.(\d+))?-(.*)/);
   if (match) {
@@ -266,20 +288,10 @@ Options:
   let intervalMs = 10000;
   let intervalStr = '10s';
   if (values.watch) {
-    let totalMs = 0;
-    const matches = values.watch.matchAll(/(\d+)(h|m|s)?/g);
-    let found = false;
-    for (const match of matches) {
-      found = true;
-      const val = parseInt(match[1]!, 10);
-      const unit = match[2] || 's';
-      if (unit === 's') totalMs += val * 1000;
-      else if (unit === 'm') totalMs += val * 60000;
-      else if (unit === 'h') totalMs += val * 3600000;
-    }
-    if (found) {
-      intervalMs = totalMs;
-      intervalStr = values.watch;
+    const parsedWatch = parseWatchIntervalArg(values.watch);
+    if (parsedWatch) {
+      intervalMs = parsedWatch.intervalMs;
+      intervalStr = parsedWatch.intervalStr;
     }
   }
 

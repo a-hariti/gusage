@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { parseNotifyThresholdArg, shouldSendThresholdNotification, validateNotifyRuntime } from './index.js';
+import {
+  parseNotifyThresholdArg,
+  parseWatchIntervalArg,
+  shouldSendThresholdNotification,
+  validateNotifyRuntime,
+} from './index.js';
 
 describe('parseNotifyThresholdArg', () => {
   test('returns null when notify is not provided', () => {
@@ -61,5 +66,21 @@ describe('shouldSendThresholdNotification', () => {
     expect(shouldSendThresholdNotification(0.2, 0.2, 0.2)).toBeFalse();
     expect(shouldSendThresholdNotification(0.15, 0.1, 0.2)).toBeFalse();
     expect(shouldSendThresholdNotification(0.3, 0.25, 0.2)).toBeFalse();
+  });
+});
+
+describe('parseWatchIntervalArg', () => {
+  test('defaults missing unit chunks to seconds in display string', () => {
+    expect(parseWatchIntervalArg('20')).toEqual({ intervalMs: 20000, intervalStr: '20s' });
+    expect(parseWatchIntervalArg('1m20')).toEqual({ intervalMs: 80000, intervalStr: '1m20s' });
+  });
+
+  test('preserves explicit units and computes total milliseconds', () => {
+    expect(parseWatchIntervalArg('5m')).toEqual({ intervalMs: 300000, intervalStr: '5m' });
+    expect(parseWatchIntervalArg('1h2m3s')).toEqual({ intervalMs: 3723000, intervalStr: '1h2m3s' });
+  });
+
+  test('returns null when no interval chunks are present', () => {
+    expect(parseWatchIntervalArg('abc')).toBeNull();
   });
 });
