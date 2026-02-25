@@ -66,7 +66,7 @@ const ENCRYPTED_FILE_NAME = 'mcp-oauth-tokens-v2.json';
 const LEGACY_OAUTH_FILE = 'oauth_creds.json';
 
 const VALID_GEMINI_MODELS = new Set([
-  'gemini-3-pro-preview',
+  'gemini-3.1-pro-preview',
   'gemini-3-flash-preview',
   'gemini-2.5-pro',
   'gemini-2.5-flash',
